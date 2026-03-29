@@ -1,3 +1,13 @@
+---
+title: scaler-ml-submission
+emoji: "🐳"
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Data Cleaning Environment
 
 A real-world data cleaning and validation environment for training and evaluating AI agents. Built with OpenEnv specification compliance.
