@@ -66,9 +66,10 @@ async def root():
 
 
 @app.post("/reset", response_model=ResetResponse)
-async def reset(request: ResetRequest):
+async def reset(request: Optional[ResetRequest] = None):
     try:
-        observation = env.reset(task_id=request.task_id)
+        task_id = request.task_id if request else "task_missing_values"
+        observation = env.reset(task_id=task_id)
         
         return ResetResponse(
             observation={
