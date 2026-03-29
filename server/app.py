@@ -1,4 +1,6 @@
-from fastapi import FastAPI, HTTPException
+import json
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
@@ -66,9 +68,40 @@ async def root():
 
 
 @app.post("/reset", response_model=ResetResponse)
-async def reset(request: Optional[ResetRequest] = None):
+async def reset(request: Request):
     try:
-        task_id = request.task_id if request else "task_missing_values"
+        task_id = "task_missing_values"
+
+        query_task_id = request.query_params.get("task_id")
+        if isinstance(query_task_id, str) and query_task_id:
+            task_id = query_task_id
+        else:
+            payload: Dict[str, Any] = {}
+            raw_body = await request.body()
+
+            if raw_body:
+                content_type = (request.headers.get("content-type") or "").lower()
+                if "application/json" in content_type:
+                    parsed_json = await request.json()
+                    if isinstance(parsed_json, dict):
+                        payload = parsed_json
+                elif "application/x-www-form-urlencoded" in content_type:
+                    form_data = await request.form()
+                    payload = dict(form_data)
+                else:
+                    text_body = raw_body.decode("utf-8", errors="ignore").strip()
+                    if text_body:
+                        try:
+                            parsed_text = json.loads(text_body)
+                            if isinstance(parsed_text, dict):
+                                payload = parsed_text
+                        except json.JSONDecodeError:
+                            payload = {}
+
+            body_task_id = payload.get("task_id")
+            if isinstance(body_task_id, str) and body_task_id:
+                task_id = body_task_id
+
         observation = env.reset(task_id=task_id)
         
         return ResetResponse(
