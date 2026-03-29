@@ -1,0 +1,151 @@
+import os
+import json
+import re
+from typing import Optional
+from openai import OpenAI
+from src.environment import DataCleaningEnv
+from src.models import Action
+from src.graders import MissingValuesGrader, DuplicateHandlingGrader, ComplexValidationGrader
+
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4")
+MAX_STEPS = 20
+TEMPERATURE = 0.3
+MAX_TOKENS = 500
+
+SYSTEM_PROMPT = """You are an expert data analyst. Your task is to clean and validate datasets by identifying and resolving data quality issues.
+
+You have access to the following actions:
+- analyze: Examine data structure, types, and quality metrics
+- impute: Fill missing values using specified strategy (mean, median, forward_fill)
+- deduplicate: Remove duplicate records
+- validate: Check data against validation rules
+- report_findings: Generate summary of data quality assessment
+
+For each action, provide:
+1. action_type: One of the actions above
+2. target_columns: List of column names to process
+3. parameters: Dictionary with method-specific parameters
+4. reasoning: Brief explanation of your approach
+
+Format your response as valid JSON."""
+
+
+def extract_action(response_text: str) -> Optional[Action]:
+    try:
+        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        if not json_match:
+            return None
+        
+        action_data = json.loads(json_match.group())
+        
+        return Action(
+            action_type=action_data.get('action_type', 'analyze'),
+            target_columns=action_data.get('target_columns', []),
+            parameters=action_data.get('parameters', {}),
+            reasoning=action_data.get('reasoning', '')
+        )
+    except (json.JSONDecodeError, KeyError, ValueError):
+        return None
+
+
+def run_task(env: DataCleaningEnv, task_id: str, grader_class) -> float:
+    client = OpenAI(api_url=API_BASE_URL, api_key=API_KEY)
+    
+    observation = env.reset(task_id=task_id)
+    
+    print(f"\nRunning {task_id}")
+    print(f"Initial state: {observation.current_state}")
+    
+    for step in range(1, MAX_STEPS + 1):
+        state_description = f"""
+Current dataset state:
+- Shape: {observation.dataset_shape}
+- Columns: {', '.join(observation.column_names)}
+- Data types: {json.dumps(observation.data_types, indent=2)}
+- Missing values: {json.dumps(observation.missing_values, indent=2)}
+- Current progress: {observation.episode_progress}
+
+Based on this state, what data cleaning action should you take next?
+"""
+        
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": state_description}
+        ]
+        
+        try:
+            completion = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages,
+                temperature=TEMPERATURE,
+                max_tokens=MAX_TOKENS,
+            )
+            
+            response_text = completion.choices[0].message.content or ""
+        except Exception as e:
+            print(f"  Step {step}: API call failed - {str(e)}")
+            break
+        
+        action = extract_action(response_text)
+        if not action:
+            action = Action(
+                action_type="analyze",
+                target_columns=observation.column_names[:2],
+                parameters={},
+                reasoning="Default analysis"
+            )
+        
+        observation, reward, done, info = env.step(action)
+        
+        print(f"  Step {step}: {action.action_type} -> reward {reward.value:.3f}")
+        
+        if done:
+            break
+    
+    episode_state = env.current_episode
+    final_score = grader_class.grade(episode_state)
+    
+    print(f"Task {task_id} final score: {final_score:.3f}")
+    return final_score
+
+
+def main():
+    env = DataCleaningEnv()
+    
+    print("=" * 60)
+    print("Data Cleaning Environment - Baseline Inference")
+    print("=" * 60)
+    
+    tasks = [
+        ("task_missing_values", MissingValuesGrader),
+        ("task_duplicate_handling", DuplicateHandlingGrader),
+        ("task_complex_validation", ComplexValidationGrader),
+    ]
+    
+    scores = {}
+    
+    for task_id, grader_class in tasks:
+        try:
+            score = run_task(env, task_id, grader_class)
+            scores[task_id] = score
+        except Exception as e:
+            print(f"Error running {task_id}: {e}")
+            scores[task_id] = 0.0
+    
+    print("\n" + "=" * 60)
+    print("Baseline Scores")
+    print("=" * 60)
+    
+    for task_id, score in scores.items():
+        print(f"{task_id}: {score:.3f}")
+    
+    average_score = sum(scores.values()) / len(scores) if scores else 0.0
+    print(f"\nAverage score: {average_score:.3f}")
+    
+    return average_score
+
+
+if __name__ == "__main__":
+    main()

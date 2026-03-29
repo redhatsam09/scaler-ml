@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+pydantic
+openai>=2.7.2
+pandas
+numpy
+openenv-core
+python-multipart
