@@ -51,7 +51,9 @@ def extract_action(response_text: str) -> Optional[Action]:
 
 
 def run_task(env: DataCleaningEnv, task_id: str, grader_class) -> float:
-    client = OpenAI(api_url=API_BASE_URL, api_key=API_KEY)
+    client = None
+    if API_KEY:
+        client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     
     observation = env.reset(task_id=task_id)
     
@@ -75,26 +77,34 @@ Based on this state, what data cleaning action should you take next?
             {"role": "user", "content": state_description}
         ]
         
-        try:
-            completion = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=messages,
-                temperature=TEMPERATURE,
-                max_tokens=MAX_TOKENS,
-            )
-            
-            response_text = completion.choices[0].message.content or ""
-        except Exception as e:
-            print(f"  Step {step}: API call failed - {str(e)}")
-            break
+        response_text = ""
+        if client is not None:
+            try:
+                completion = client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=messages,
+                    temperature=TEMPERATURE,
+                    max_tokens=MAX_TOKENS,
+                )
+                response_text = completion.choices[0].message.content or ""
+            except Exception as e:
+                print(f"  Step {step}: API call failed - {str(e)}")
         
         action = extract_action(response_text)
         if not action:
+            fallback_action_type = "analyze"
+            fallback_parameters = {}
+            if step == 2:
+                fallback_action_type = "impute"
+                fallback_parameters = {"method": "mean"}
+            elif step == 3:
+                fallback_action_type = "deduplicate"
+
             action = Action(
-                action_type="analyze",
+                action_type=fallback_action_type,
                 target_columns=observation.column_names[:2],
-                parameters={},
-                reasoning="Default analysis"
+                parameters=fallback_parameters,
+                reasoning="Fallback strategy"
             )
         
         observation, reward, done, info = env.step(action)

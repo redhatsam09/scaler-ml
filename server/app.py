@@ -68,6 +68,7 @@ async def root():
 
 
 @app.post("/reset", response_model=ResetResponse)
+@app.post("/reset/", response_model=ResetResponse)
 async def reset(request: Request):
     try:
         task_id = "task_missing_values"
