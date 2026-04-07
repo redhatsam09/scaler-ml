@@ -3,6 +3,18 @@ from typing import Dict, Any
 from src.environment import DataCleaningEnv, EpisodeState
 
 
+MIN_TASK_SCORE = 0.01
+MAX_TASK_SCORE = 0.99
+
+
+def _strict_task_score(value: float) -> float:
+    if value <= MIN_TASK_SCORE:
+        return MIN_TASK_SCORE
+    if value >= MAX_TASK_SCORE:
+        return MAX_TASK_SCORE
+    return float(value)
+
+
 class MissingValuesGrader:
     
     @staticmethod
@@ -14,7 +26,7 @@ class MissingValuesGrader:
         current_missing = dataset.isnull().sum().sum()
         
         if original_missing == 0:
-            return 0.5
+            return _strict_task_score(0.5)
         
         reduction = (original_missing - current_missing) / original_missing
         
@@ -39,7 +51,7 @@ class MissingValuesGrader:
         if current_missing == 0:
             base_score = min(1.0, base_score + 0.2)
         
-        return min(1.0, base_score)
+        return _strict_task_score(min(1.0, base_score))
 
 
 class DuplicateHandlingGrader:
@@ -53,7 +65,7 @@ class DuplicateHandlingGrader:
         current_dups = dataset.duplicated(subset=None, keep=False).sum()
         
         if original_dups == 0:
-            return 0.4
+            return _strict_task_score(0.4)
         
         dedup_performed = any(
             a['action_type'] == 'deduplicate' 
@@ -61,7 +73,7 @@ class DuplicateHandlingGrader:
         )
         
         if not dedup_performed:
-            return 0.2
+            return _strict_task_score(0.2)
         
         reduction = (original_dups - current_dups) / original_dups
         base_score = max(0.0, reduction)
@@ -77,7 +89,7 @@ class DuplicateHandlingGrader:
         if validation_performed:
             base_score = min(1.0, base_score + 0.1)
         
-        return min(1.0, base_score)
+        return _strict_task_score(min(1.0, base_score))
 
 
 class ComplexValidationGrader:
@@ -142,4 +154,4 @@ class ComplexValidationGrader:
         if report_generated:
             score += 0.05
         
-        return min(1.0, score)
+        return _strict_task_score(min(1.0, score))

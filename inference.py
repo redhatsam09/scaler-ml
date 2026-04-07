@@ -13,6 +13,8 @@ MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4")
 MAX_STEPS = 20
 TEMPERATURE = 0.3
 MAX_TOKENS = 500
+MIN_TASK_SCORE = 0.01
+MAX_TASK_SCORE = 0.99
 
 SYSTEM_PROMPT = """You are an expert data analyst. Your task is to clean and validate datasets by identifying and resolving data quality issues.
 
@@ -37,6 +39,14 @@ def emit(event: str, **fields) -> None:
     for key, value in fields.items():
         parts.append(f"{key}={value}")
     print(" ".join(parts), flush=True)
+
+
+def bound_task_score(value: float) -> float:
+    if value <= MIN_TASK_SCORE:
+        return MIN_TASK_SCORE
+    if value >= MAX_TASK_SCORE:
+        return MAX_TASK_SCORE
+    return float(value)
 
 
 def extract_action(response_text: str) -> Optional[Action]:
@@ -128,7 +138,7 @@ Based on this state, what data cleaning action should you take next?
             break
     
     episode_state = env.current_episode
-    final_score = grader_class.grade(episode_state)
+    final_score = bound_task_score(grader_class.grade(episode_state))
     emit("END", task=task_id, score=f"{final_score:.6f}", steps=steps_executed)
     return final_score
 
@@ -150,8 +160,8 @@ def main():
             scores[task_id] = score
         except Exception as e:
             emit("START", task=task_id)
-            emit("END", task=task_id, score="0.000000", steps=0)
-            scores[task_id] = 0.0
+            emit("END", task=task_id, score="0.010000", steps=0)
+            scores[task_id] = MIN_TASK_SCORE
 
     average_score = sum(scores.values()) / len(scores) if scores else 0.0
     emit("SUMMARY", average_score=f"{average_score:.6f}")
