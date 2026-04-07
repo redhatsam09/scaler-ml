@@ -32,6 +32,13 @@ For each action, provide:
 Format your response as valid JSON."""
 
 
+def emit(event: str, **fields) -> None:
+    parts = [f"[{event}]"]
+    for key, value in fields.items():
+        parts.append(f"{key}={value}")
+    print(" ".join(parts), flush=True)
+
+
 def extract_action(response_text: str) -> Optional[Action]:
     try:
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
@@ -56,9 +63,8 @@ def run_task(env: DataCleaningEnv, task_id: str, grader_class) -> float:
         client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     
     observation = env.reset(task_id=task_id)
-    
-    print(f"\nRunning {task_id}")
-    print(f"Initial state: {observation.current_state}")
+    emit("START", task=task_id)
+    steps_executed = 0
     
     for step in range(1, MAX_STEPS + 1):
         state_description = f"""
@@ -88,7 +94,7 @@ Based on this state, what data cleaning action should you take next?
                 )
                 response_text = completion.choices[0].message.content or ""
             except Exception as e:
-                print(f"  Step {step}: API call failed - {str(e)}")
+                emit("STEP", task=task_id, step=step, action="api_error", reward="0.000000", done="false")
         
         action = extract_action(response_text)
         if not action:
@@ -108,25 +114,27 @@ Based on this state, what data cleaning action should you take next?
             )
         
         observation, reward, done, info = env.step(action)
-        
-        print(f"  Step {step}: {action.action_type} -> reward {reward.value:.3f}")
+        steps_executed = step
+        emit(
+            "STEP",
+            task=task_id,
+            step=step,
+            action=action.action_type,
+            reward=f"{reward.value:.6f}",
+            done=str(done).lower(),
+        )
         
         if done:
             break
     
     episode_state = env.current_episode
     final_score = grader_class.grade(episode_state)
-    
-    print(f"Task {task_id} final score: {final_score:.3f}")
+    emit("END", task=task_id, score=f"{final_score:.6f}", steps=steps_executed)
     return final_score
 
 
 def main():
     env = DataCleaningEnv()
-    
-    print("=" * 60)
-    print("Data Cleaning Environment - Baseline Inference")
-    print("=" * 60)
     
     tasks = [
         ("task_missing_values", MissingValuesGrader),
@@ -141,18 +149,12 @@ def main():
             score = run_task(env, task_id, grader_class)
             scores[task_id] = score
         except Exception as e:
-            print(f"Error running {task_id}: {e}")
+            emit("START", task=task_id)
+            emit("END", task=task_id, score="0.000000", steps=0)
             scores[task_id] = 0.0
-    
-    print("\n" + "=" * 60)
-    print("Baseline Scores")
-    print("=" * 60)
-    
-    for task_id, score in scores.items():
-        print(f"{task_id}: {score:.3f}")
-    
+
     average_score = sum(scores.values()) / len(scores) if scores else 0.0
-    print(f"\nAverage score: {average_score:.3f}")
+    emit("SUMMARY", average_score=f"{average_score:.6f}")
     
     return average_score
 

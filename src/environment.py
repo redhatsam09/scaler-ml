@@ -240,11 +240,11 @@ class DataCleaningEnv:
                     value = dataset[col].median()
                 
                 if pd.notna(value):
-                    dataset[col].fillna(value, inplace=True)
-                    missing_before = dataset[col].isnull().sum()
-                    reward += 0.4 if missing_before == 0 else 0.2
+                    dataset[col] = dataset[col].fillna(value)
+                    missing_after = dataset[col].isnull().sum()
+                    reward += 0.4 if missing_after == 0 else 0.2
             elif method == 'forward_fill':
-                dataset[col].fillna(method='ffill', inplace=True)
+                dataset[col] = dataset[col].ffill()
                 reward += 0.35
         
         return min(1.0, reward / len(valid_cols)) if valid_cols else 0.0
